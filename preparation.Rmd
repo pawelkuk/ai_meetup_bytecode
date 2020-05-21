@@ -1,0 +1,338 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.3.2
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+<!-- #region slideshow={"slide_type": "slide"} -->
+# A Light Introduction to the Internals of Python
+AI Meetup 22.05.2020
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "subslide"} -->
+## What I won't cover in this talk:
+- lexer (source code -> tokens)
+- parser (tokens -> ast)
+- grammar (Python has a very easy grammar)
+
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "subslide"} -->
+## Agenda
+- the cpython repository
+- compilation
+- bytecode
+- the dis module
+- opcodes
+- the ceval.c loop and Python virtual machine
+- what does it mean that in Python everything is an object
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "subslide"} -->
+### We will be talking about Cpython
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "slide"} -->
+## CPython repository https://github.com/python/cpython
+- easy to compile and setup for development
+- most important directories: 
+  - Include: header files
+  - Objects: object implementations, from int to type
+  - Python: interpreter, bytecode compiler and other essential infrastructure
+- other:
+  - Modules: stdlib extension modules
+  - Lib: Python standard library implemented in Python
+
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "slide"} -->
+## High level overview of running a Python script
+\*.py -> compiler -> bytecode -> main iterpreter loop
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "subslide"} -->
+## Compilation
+In CPython, the compilation from source code to bytecode involves several steps:
+
+1. Parse source code into a parse tree (Parser/pgen.c)
+2. Transform parse tree into an Abstract Syntax Tree (Python/ast.c)
+3. Transform AST into a Control Flow Graph (Python/compile.c)
+4. Emit bytecode based on the Control Flow Graph (Python/compile.c)
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "subslide"} -->
+## Let's start with a simple Python script
+<!-- #endregion -->
+
+```{python slideshow={'slide_type': 'subslide'}}
+script = """
+G = 1
+
+class A:
+    def __init__(self, func):
+        self.func = func
+
+def func(n):
+    return G + n
+
+"""
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+from ast import parse
+ast_ = parse(script)
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+ast_.body
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+ast_.body[2].body[0].value
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+ast_.body[1].body[0].name
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+co = compile(ast_, 'test.py', 'exec')
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+{code:getattr(co, code) for code in dir(co) if not code.startswith('__')}
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+co.co_filename
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+co.co_code
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+[x for x in co.co_code]
+```
+
+<!-- #region slideshow={"slide_type": "fragment"} -->
+We can see what every opcode does in the docs https://docs.python.org/3/library/dis.html
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "fragment"} -->
+- defined in `Include/opcode.h`
+- opcode 90
+<!-- #endregion -->
+
+```{python slideshow={'slide_type': 'subslide'}}
+import this
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+import dis
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(co)
+```
+
+<!-- #region slideshow={"slide_type": "slide"} -->
+## Maybe we should start with something easier
+<!-- #endregion -->
+
+```{python slideshow={'slide_type': 'fragment'}}
+def f():
+    ...
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(f)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+def f():
+    x = 1
+    return x
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(f)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+class A:
+        ...
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(A)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+def _():
+    class A:
+        ...
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(_)
+```
+
+<!-- #region slideshow={"slide_type": "subslide"} -->
+## Fun fact: some statements of the Python grammar have no corresponding executable bytecode -- they have only effect in compilation time
+<!-- #endregion -->
+
+```{python slideshow={'slide_type': 'subslide'}}
+def _(x=1):
+    def f():
+        return x
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(_)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+G = 1
+def _():
+    return G
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(_)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+x = 1
+def _():
+    x += 1  # the same as x = x + 1
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+_()
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(_)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+x = 1
+def _():
+    global x
+    x += 1
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+_()
+x
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(_)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+def _():
+    x = 1
+    def f():
+        nonlocal x
+        x += 1
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(_)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+def f():
+    locals()['m'] = 1
+    print(locals()['m'])    
+    print(f'm = {m}')
+
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+f()
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+dis.dis(f)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+def _(x,y):
+    return x + y
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(_)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+def _(x, y):
+    return x.__add__(y)
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+dis.dis(_)
+```
+
+<!-- #region slideshow={"slide_type": "fragment"} -->
+Python doesn't know what `x` and `y` is. Python just tries it at runtime
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "subslide"} -->
+## Main interpreter loop vs. performance
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "fragment"} -->
+A common misconception is that `__add__` is the same as the `+` operator (etc.)
+<!-- #endregion -->
+
+```{python slideshow={'slide_type': 'fragment'}}
+x = 1
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+# %timeit x + x
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+# %timeit x.__add__(x)
+```
+
+```{python slideshow={'slide_type': 'subslide'}}
+# %timeit '1' + '1'
+```
+
+```{python slideshow={'slide_type': 'fragment'}}
+# %timeit '1'.__add__('1')
+```
+
+<!-- #region slideshow={"slide_type": "subslide"} -->
+# Why do we see such difference??
+
+
+<!-- #endregion -->
+
+<!-- #region slideshow={"slide_type": "fragment"} -->
+## DEMO TIME!!!
+Goto Python/ceval.c
+<!-- #endregion -->
+
+```{python}
+StackFrames, every frame has 3 stacks,  every function has a separate frame, PyObjectVar, structural subtyping
+```
+
+```{python}
+
+```
